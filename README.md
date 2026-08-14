@@ -1,6 +1,6 @@
 # 小苏：公司内部 AI 助手
 
-> 项目状态：基础文档与仓库边界已建立，业务代码按 `AGENTS.md` 中的二次开发计划逐步实现。
+> 项目状态：已完成第一步工程骨架：FastAPI 主服务、独立 mock API、基础脚本与自动化测试。知识库、Agent、飞书和 Web 管理后台将在后续步骤实现。
 
 小苏面向公司员工提供知识库问答、考勤查询、订单汇总和飞书机器人服务。知识库文件来自 `knowledges/`，内部 mock 系统数据来自 `data/`。
 
@@ -39,7 +39,7 @@ logs/          运行日志（不提交）
 
 ## 常用命令
 
-业务代码完成后统一通过以下脚本执行：
+当前可通过以下脚本执行：
 
 ```bash
 ./scripts/setup.sh
@@ -48,6 +48,10 @@ logs/          运行日志（不提交）
 ./scripts/index.sh
 ./scripts/build.sh
 ```
+
+`start.sh` 启动主服务（`GET /api/health`）；`start-mock.sh` 启动独立 mock API（`GET /health`、`GET /api/attendance`、`GET /api/orders`）。mock API 只读取 `data/`，考勤接口的 `user_id` 同时接受 `001` 与 `U001`。
+
+脚本会根据自身位置自动切换到项目根目录，因此在 `scripts/` 目录内直接执行 `./start-mock.sh` 也可以正常启动。
 
 ## 会话记忆与日志
 

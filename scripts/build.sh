@@ -3,5 +3,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd -- "$(cd -- "$SCRIPT_DIR/.." && pwd)"
+source "$SCRIPT_DIR/_pnpm.sh"
 
-echo "前端将在后续步骤初始化；当前无需构建产物。"
+pnpm_exec --filter xiaosu-admin build

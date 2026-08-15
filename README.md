@@ -1,6 +1,6 @@
 # 小苏：公司内部 AI 助手
 
-> 项目状态：已完成第一步工程骨架：FastAPI 主服务、独立 mock API、基础脚本与自动化测试。知识库、Agent、飞书和 Web 管理后台将在后续步骤实现。
+> 项目状态：已完成第三步知识库管理后台：文档管理 API、Markdown/TXT/PDF/Word 解析、SQLite 元数据、Chroma 索引和 Vue Web 管理界面已接通。Agent、飞书和对话日志页面将在后续步骤实现。
 
 小苏面向公司员工提供知识库问答、考勤查询、订单汇总和飞书机器人服务。知识库文件来自 `knowledges/`，内部 mock 系统数据来自 `data/`。
 
@@ -42,16 +42,29 @@ logs/          运行日志（不提交）
 当前可通过以下脚本执行：
 
 ```bash
-./scripts/setup.sh
-./scripts/start.sh
-./scripts/test.sh
-./scripts/index.sh
-./scripts/build.sh
+bash ./scripts/setup.sh
+bash ./scripts/build.sh
+bash ./scripts/start.sh
+bash ./scripts/start-mock.sh
+bash ./scripts/start-frontend.sh
+bash ./scripts/test.sh
+bash ./scripts/index.sh
 ```
 
 `start.sh` 启动主服务（`GET /api/health`）；`start-mock.sh` 启动独立 mock API（`GET /health`、`GET /api/attendance`、`GET /api/orders`）。mock API 只读取 `data/`，考勤接口的 `user_id` 同时接受 `001` 与 `U001`。
 
-脚本会根据自身位置自动切换到项目根目录，因此在 `scripts/` 目录内直接执行 `./start-mock.sh` 也可以正常启动。
+脚本会根据自身位置自动切换到项目根目录，因此在 `scripts/` 目录内执行 `bash ./start-mock.sh` 也可以正常启动。
+
+管理后台有两种启动方式：开发时先在一个终端执行 `bash ./scripts/start.sh`，再执行 `bash ./scripts/start-frontend.sh`，打开 `http://127.0.0.1:5173/`；需要同源访问时先执行 `bash ./scripts/build.sh`，再执行 `bash ./scripts/start.sh`，打开 `http://127.0.0.1:8000/`。后台支持文档列表、文件名搜索、状态筛选、上传、下载、重建索引和停用文档。
+`setup.sh`、`build.sh` 和 `start-frontend.sh` 会自动兼容 Git Bash 找不到 `pnpm`、但 Windows `pnpm.cmd` 已安装的情况。
+
+知识库接口包括 `POST/GET /api/documents`、`GET /api/documents/{id}/download`、`POST /api/documents/{id}/reindex` 和 `DELETE /api/documents/{id}`。文档加载优先使用 LangChain 官方 `TextLoader`、`PyPDFLoader` 和 `Docx2txtLoader`，切分使用 `RecursiveCharacterTextSplitter`（最大 150 字符、重叠 30 字符），统一转换成文档对象后再索引；上传同名且 SHA-256 相同的文件会跳过索引，上传同名不同内容会创建新版本。执行 `bash ./scripts/index.sh` 会索引 `knowledges/` 下的种子文档，删除种子只停用索引，不会删除原文件。
+
+路径说明：`backend/knowledge/routes.py` 中的 `APIRouter(prefix="/documents")` 是模块级相对前缀，`backend/main.py` 通过 `include_router(..., prefix="/api")` 再追加服务级前缀，因此最终接口路径是 `/api/documents`（复数）。
+
+Chroma Embedding 使用 LangChain `OpenAIEmbeddings`，支持 OpenAI 兼容服务；运行索引前需要在 `.env` 配置 `EMBEDDING_MODEL` 和对应的 API Key。`EMBEDDING_API_KEY`、`EMBEDDING_BASE_URL` 未填写时会回退到 `LLM_API_KEY`、`LLM_BASE_URL`。
+阿里百炼可使用兼容模式配置：`EMBEDDING_BASE_URL=https://<workspace>.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`、`EMBEDDING_MODEL=qwen3.7-text-embedding`。代码关闭了 LangChain 默认的整数 token 输入转换，向该接口直接发送字符串数组；知识库切片上限为 150 字符，因此不会因此放大请求长度。
+未配置 Embedding 时主服务仍可启动并提供健康检查，但上传、重建索引和知识库检索会返回配置错误。
 
 ## 会话记忆与日志
 

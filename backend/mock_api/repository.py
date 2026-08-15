@@ -12,17 +12,20 @@ DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 
 @lru_cache(maxsize=1)
 def load_attendance() -> tuple[AttendanceRecord, ...]:
+    """读取并缓存只读考勤 mock 数据。"""
     records = json.loads((DATA_DIR / "attendance.json").read_text(encoding="utf-8"))
     return tuple(AttendanceRecord.model_validate(record) for record in records)
 
 
 @lru_cache(maxsize=1)
 def load_orders() -> tuple[OrderRecord, ...]:
+    """读取并缓存只读订单 mock 数据。"""
     records = json.loads((DATA_DIR / "order.json").read_text(encoding="utf-8"))
     return tuple(OrderRecord.model_validate(record) for record in records)
 
 
 def find_attendance(user_id: str | None, record_date: date | None) -> list[AttendanceRecord]:
+    """按兼容格式的员工编号和日期筛选考勤。"""
     normalized_user_id = _normalize_user_id(user_id) if user_id else None
     return [
         record
@@ -33,6 +36,7 @@ def find_attendance(user_id: str | None, record_date: date | None) -> list[Atten
 
 
 def find_orders(start_date: date | None, end_date: date | None) -> list[OrderRecord]:
+    """按闭区间创建日期筛选订单。"""
     return [
         record
         for record in load_orders()

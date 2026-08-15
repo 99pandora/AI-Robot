@@ -29,6 +29,7 @@
 - 后端使用 Python、FastAPI、LangGraph、LangChain、Chroma、SQLite；依赖由 `uv` 管理，虚拟环境固定为 `.venv`。
 - 前端使用 Vue 3、TypeScript、Vite、Element Plus；依赖由 `pnpm` 管理，不使用 CommonJS。
 - `backend/` 保存 API、Agent、知识库、持久化和飞书适配器；`frontend/` 保存管理后台；`scripts/` 保存启动、测试、索引和构建命令。
+- `frontend/` 使用 Vue 3、TypeScript、Vite 和 Element Plus；知识库后台已接通文档列表、上传、下载、重建索引和停用接口。
 - `data/attendance.json` 与 `data/order.json` 是只读 mock 数据；`knowledges/` 是只读种子知识文件。
 - `storage/` 和 `logs/` 只保存运行时数据，不能提交 Git。
 
@@ -50,6 +51,8 @@
 ### 知识库行为
 
 - 支持 Markdown、TXT、PDF、Word；文档状态为 `pending`、`indexed` 或 `failed`。
+- 文档加载优先使用 LangChain 官方 loader，切分使用 `RecursiveCharacterTextSplitter`，`chunk_size=150`、`chunk_overlap=30`。
+- Embedding 使用 LangChain `OpenAIEmbeddings`，配置来自 `EMBEDDING_API_KEY`、`EMBEDDING_BASE_URL` 和 `EMBEDDING_MODEL`；切换模型后必须重建 Chroma 索引。
 - 使用文件名和 SHA-256 实现同名替换和重复跳过。
 - Chroma chunk 元数据必须保存文档、版本、文件名、标题、页码或段落和 chunk 序号。
 - 删除种子文件只停用索引，不删除 `knowledges/` 原文件；删除后的文档不能继续参与检索。

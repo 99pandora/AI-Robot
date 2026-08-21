@@ -1,6 +1,6 @@
 # 小苏：公司内部 AI 助手
 
-> 项目状态：已完成知识库管理后台、最小 Agent 闭环和对话日志页面；飞书接入仍需配置凭据后单独验收。
+> 项目状态：已完成知识库管理后台、最小 Agent 闭环、对话日志页面和飞书长连接适配器；真实飞书 IM 仍需配置凭据后验收。
 
 小苏面向公司员工提供知识库问答、考勤查询、订单汇总和飞书机器人服务。知识库文件来自 `knowledges/`，内部 mock 系统数据来自 `data/`。
 
@@ -16,7 +16,7 @@
 ## 目录约定
 
 ```text
-backend/       FastAPI、LangGraph、Chroma、SQLite、飞书适配器
+backend/       FastAPI、LangGraph、Chroma、SQLite、飞书长连接适配器
 frontend/      Vue 3 + TypeScript + Vite 管理后台
 scripts/       setup/start/test/index/build 脚本
 data/          attendance.json、order.json mock 数据（只读）
@@ -31,6 +31,7 @@ logs/          运行日志（不提交）
 - Python 3.11+，使用 `uv` 管理依赖，虚拟环境固定为 `.venv`。
 - Node.js 18+，使用 Corepack 管理 `pnpm`。
 - OpenAI 兼容的 Chat Completions、Tool Calling 和 Embedding 服务。
+- 飞书接入使用官方 `lark-channel-sdk`，通过 `uv sync` 安装，不需要单独 `pip install`。
 - 飞书企业自建应用（仅在需要 IM 演示时配置）。
 
 ## 配置
@@ -48,10 +49,13 @@ bash ./scripts/start.sh
 bash ./scripts/start-mock.sh
 bash ./scripts/start-frontend.sh
 bash ./scripts/test.sh
+bash ./scripts/test-feishu.sh
 bash ./scripts/index.sh
 ```
 
 `start.sh` 启动主服务（`GET /api/health`）；`start-mock.sh` 启动独立 mock API（`GET /health`、`GET /api/attendance`、`GET /api/orders`）。考勤和订单工具依赖 mock API，因此本地联调必须同时运行两个脚本；主服务健康检查中的 `dependencies.mock_api` 可直接确认依赖是否在线。mock API 只读取 `data/`，考勤接口的 `user_id` 同时接受 `001` 与 `U001`。
+
+主服务健康检查的 `dependencies.feishu` 会返回飞书适配器状态：`disabled` 表示未配置凭据，`starting`/`connected`/`reconnecting` 表示连接生命周期，`failed` 或 `misconfigured` 表示需要检查网络、权限或配置。未配置飞书凭据不影响 Web 管理后台启动。
 
 脚本会根据自身位置自动切换到项目根目录，因此在 `scripts/` 目录内执行 `bash ./start-mock.sh` 也可以正常启动。
 
@@ -85,7 +89,29 @@ Agent 上下文只保存在 LangChain `InMemoryChatMessageHistory` 中，每个 
 
 ## 飞书接入
 
-飞书采用官方 SDK 长连接接收 `im.message.receive_v1` 事件。需要启用机器人能力、配置事件订阅和消息权限。未配置飞书凭据时，Web 管理后台仍可用于本地知识库和调试聊天。
+飞书适配器使用官方 `lark-channel-sdk` 的 `FeishuChannel`，通过 WebSocket 长连接接收 `im.message.receive_v1`，并将消息异步转交给现有 `AgentService`。私聊默认响应，群聊需要 @机器人；SDK 自带内存去重，业务层额外按 `message_id` 做进程内有界 TTL 幂等。飞书会话使用 `feishu:user_id:chat_id` 作为记忆键，话题消息会追加 `thread_id`，不会与 Web 会话或其他用户串联。
+
+发送失败由适配器进行有限重试，模型初始化/执行失败时向用户发送友好兜底消息；发送最终失败则写入服务日志。服务关闭时会停止 Channel 并等待已接收消息任务完成。适配器不把消息或凭据写入 SQLite、文件或外部缓存。
+
+### 本地离线验收
+
+没有飞书凭据时可执行：
+
+```bash
+bash ./scripts/test-feishu.sh
+```
+
+该脚本覆盖消息去重、会话键隔离、发送重试、模型失败兜底、无凭据停用和部分配置报错。
+
+### 真实 IM 验收
+
+1. 在飞书开发者后台创建企业自建应用，启用机器人和 WebSocket 事件订阅。
+2. 订阅 `im.message.receive_v1`，授予机器人接收/发送消息所需权限，并重新安装应用到租户。
+3. 在本地 `.env` 配置 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`，不要提交该文件。
+4. 执行 `bash ./scripts/start-mock.sh` 和 `bash ./scripts/start.sh`，检查 `http://127.0.0.1:8000/api/health` 中 `dependencies.feishu.status` 为 `connected`。
+5. 分别发送私聊、群聊 @机器人、连续两轮上下文问题；确认回复内容、对话日志中的 `platform=feishu`、同一 `message_id` 不产生重复回复。
+
+未配置真实凭据时只能完成上述离线验收，不能声称 IM 真实联调完成。
 
 ## 当前限制
 

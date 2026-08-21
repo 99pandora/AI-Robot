@@ -1,5 +1,6 @@
 """小苏主服务入口。"""
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 import os
 
@@ -12,11 +13,12 @@ from backend.agent.routes import build_chat_router
 from backend.agent.service import AgentService
 from backend.conversations.routes import build_conversation_router
 from backend.conversations.store import ConversationAuditStore
+from backend.feishu.models import FeishuSettings
+from backend.feishu.service import FeishuAdapter
 from backend.knowledge.models import KnowledgeSettings
 from backend.knowledge.routes import build_document_router
 from backend.knowledge.service import DocumentService
 
-app = FastAPI(title="小苏内部 AI 助手", version="0.1.0")
 # 以源码位置确定项目根目录，保证从任意工作目录启动都能找到 storage/ 和 knowledges/。
 project_root = Path(__file__).resolve().parents[1]
 load_dotenv(project_root / ".env", override=False)
@@ -25,6 +27,21 @@ conversation_store = ConversationAuditStore(
     document_service.settings.storage_root / "conversations.sqlite3"
 )
 agent_service = AgentService(document_service, audit_store=conversation_store)
+feishu_adapter = FeishuAdapter(agent_service, FeishuSettings.from_env())
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """启动/关闭飞书长连接；没有凭据时保持 Web 服务可用。"""
+
+    await feishu_adapter.start()
+    try:
+        yield
+    finally:
+        await feishu_adapter.stop()
+
+
+app = FastAPI(title="小苏内部 AI 助手", version="0.1.0", lifespan=lifespan)
 
 app.include_router(build_document_router(document_service), prefix="/api")
 app.include_router(build_chat_router(agent_service), prefix="/api")
@@ -38,7 +55,10 @@ async def health_check() -> dict[str, object]:
     return {
         "status": "ok",
         "service": "xiaosu-api",
-        "dependencies": {"mock_api": mock_api_status},
+        "dependencies": {
+            "mock_api": mock_api_status,
+            "feishu": feishu_adapter.health(),
+        },
     }
 
 

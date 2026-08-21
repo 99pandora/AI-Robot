@@ -18,10 +18,15 @@ import type {
   ChatEvent,
   ChatMessage,
   ChatReference,
+  FeishuConnectionStatus,
   ToolCallEvent,
 } from "../types";
 
-const props = defineProps<{ backendOnline: boolean; mockApiOnline: boolean }>();
+const props = defineProps<{
+  backendOnline: boolean;
+  mockApiOnline: boolean;
+  feishuStatus: FeishuConnectionStatus;
+}>();
 
 const STORAGE_USER = "xiaosu-chat-user-id";
 const STORAGE_CONVERSATION = "xiaosu-chat-conversation-id";
@@ -42,6 +47,18 @@ const activeController = ref<AbortController | null>(null);
 
 const canSend = computed(() => Boolean(draft.value.trim()) && !sending.value);
 const connectionLabel = computed(() => (props.backendOnline ? "服务在线" : "等待后端"));
+const feishuLabel = computed(() => {
+  const labels: Record<FeishuConnectionStatus, string> = {
+    disabled: "飞书未配置",
+    stopped: "飞书未启动",
+    starting: "飞书连接中",
+    connected: "飞书在线",
+    reconnecting: "飞书重连中",
+    failed: "飞书连接失败",
+    misconfigured: "飞书配置错误",
+  };
+  return labels[props.feishuStatus];
+});
 
 function readStorage(key: string, fallback: string): string {
   try {
@@ -288,6 +305,9 @@ onUnmounted(() => {
         </el-tag>
         <el-tag :type="props.mockApiOnline ? 'success' : 'danger'" effect="light">
           <span class="status-dot"></span>{{ props.mockApiOnline ? "业务数据在线" : "业务数据离线" }}
+        </el-tag>
+        <el-tag :type="props.feishuStatus === 'connected' ? 'success' : 'info'" effect="light">
+          <span class="status-dot"></span>{{ feishuLabel }}
         </el-tag>
         <el-button plain @click="newConversation">
           <el-icon><RefreshRight /></el-icon>新会话

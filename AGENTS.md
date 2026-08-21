@@ -28,7 +28,7 @@
 
 - 后端使用 Python、FastAPI、LangGraph、LangChain、Chroma、SQLite；依赖由 `uv` 管理，虚拟环境固定为 `.venv`。
 - 前端使用 Vue 3、TypeScript、Vite、Element Plus；依赖由 `pnpm` 管理，不使用 CommonJS。
-- `backend/` 保存 API、Agent、知识库、持久化和飞书适配器；`frontend/` 保存管理后台；`scripts/` 保存启动、测试、索引和构建命令。
+- `backend/` 保存 API、Agent、知识库、持久化和飞书适配器；`backend/feishu/` 使用官方 `lark-channel-sdk` 负责 WebSocket 长连接；`frontend/` 保存管理后台；`scripts/` 保存启动、测试、索引和构建命令。
 - `frontend/` 使用 Vue 3、TypeScript、Vite 和 Element Plus；已接通知识库文档管理、“对话”入口和“对话日志”页面，聊天页面消费 `/api/chat/stream` 的 SSE 事件。
 - `data/attendance.json` 与 `data/order.json` 是只读 mock 数据；`knowledges/` 是只读种子知识文件。
 - `storage/` 和 `logs/` 只保存运行时数据，不能提交 Git。
@@ -64,19 +64,19 @@
 - 文档：`POST/GET /api/documents`、`GET /api/documents/{id}/download`、`POST /api/documents/{id}/reindex`、`DELETE /api/documents/{id}`。
 - 问答：`POST /api/chat/stream`，请求体至少包含 `message`，可选 `platform`、`user_id`、`conversation_id`；SSE 事件包含 token、工具调用、引用、完成和错误，工具状态为 `started`、`completed` 或 `failed`。
 - 日志：`GET /api/conversations`、`GET /api/conversations/{id}`。
-- 设置与健康：`GET /api/settings`、`PUT /api/settings/model`、`GET /api/health`；健康响应中的 `dependencies.mock_api` 表示考勤和订单 mock 服务是否在线。
+- 设置与健康：`GET /api/settings`、`PUT /api/settings/model`、`GET /api/health`；健康响应中的 `dependencies.mock_api` 表示考勤和订单 mock 服务是否在线，`dependencies.feishu` 表示飞书适配器是否停用、连接中、已连接或失败。
 - Mock API：`GET /api/attendance`、`GET /api/orders`、`GET /health`。
 
 ### 飞书与错误处理
 
-- 使用官方 SDK 长连接接收 `im.message.receive_v1`，按 `message_id` 幂等去重。
-- 飞书消息按用户和会话隔离最近 4 轮记忆；回调必须快速返回，Agent 在后台处理。
-- LLM、mock API 和飞书发送失败时有限重试，最终返回友好兜底消息，并写入日志。
-- 未配置飞书凭据时允许本地启动，但不能声称 IM 验收完成。
+- 使用官方 `lark-channel-sdk` 的 `FeishuChannel` WebSocket 长连接接收 `im.message.receive_v1`；SDK 内存去重之外，业务适配器按 `message_id` 做线程安全、有界 TTL 幂等。
+- 飞书消息按 `feishu:user_id:chat_id[:thread_id]` 与其他平台隔离最近 4 轮记忆；回调只做归一化和投递，Agent 在应用事件循环后台处理。
+- LLM、mock API 和飞书发送失败时有限重试，最终向用户返回友好兜底消息，并写入对话审计或服务日志。
+- 未配置飞书凭据时允许本地启动，部分凭据配置显示 `misconfigured`；没有真实凭据不能声称 IM 验收完成。
 
 ### 工程和 Git
 
-- 启动、测试、索引、构建命令必须位于 `scripts/*.sh`。
+- 启动、测试、索引、构建和飞书适配器离线验收命令必须位于 `scripts/*.sh`。
 - 必须提交 `uv.lock`、`pnpm-lock.yaml`、`.env.example`、源码、脚本、`data/`、`knowledges/` 和项目文档。
 - 禁止提交 `.env`、密钥、运行数据库、Chroma、日志、上传文件、缓存和构建产物。
 - 修改 API、数据类型、记忆策略或工具时，必须同步更新 README、测试和本文件。

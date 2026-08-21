@@ -20,8 +20,22 @@ export interface HealthResponse {
   status: string;
   dependencies?: {
     mock_api?: "ok" | "unavailable" | string;
+    feishu?: {
+      status: FeishuConnectionStatus | string;
+      configured: boolean;
+      last_error: string | null;
+    };
   };
 }
+
+export type FeishuConnectionStatus =
+  | "disabled"
+  | "stopped"
+  | "starting"
+  | "connected"
+  | "reconnecting"
+  | "failed"
+  | "misconfigured";
 
 export interface ChatStreamRequest {
   message: string;

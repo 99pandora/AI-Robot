@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import {
   Check,
   ChatDotRound,
@@ -22,7 +22,7 @@ import {
   reindexDocument,
   uploadDocument,
 } from "./api";
-import type { DocumentRecord, DocumentStatus } from "./types";
+import type { DocumentRecord, DocumentStatus, FeishuConnectionStatus } from "./types";
 import type { UploadFile, UploadUserFile } from "element-plus";
 import { ElMessage, ElMessageBox } from "element-plus";
 import ChatPanel from "./components/ChatPanel.vue";
@@ -39,7 +39,9 @@ const statusFilter = ref<DocumentStatus | "">("");
 const activeOperation = ref<string | null>(null);
 const backendOnline = ref(false);
 const mockApiOnline = ref(false);
+const feishuStatus = ref<FeishuConnectionStatus>("disabled");
 const activeView = ref<"knowledge" | "chat" | "logs">("knowledge");
+let healthTimer: ReturnType<typeof setInterval> | null = null;
 
 const filteredDocuments = computed(() => {
   const keyword = searchText.value.trim().toLowerCase();
@@ -86,10 +88,38 @@ async function checkBackend(): Promise<void> {
     const health = await getHealth();
     backendOnline.value = true;
     mockApiOnline.value = health.dependencies?.mock_api === "ok";
+    const status = health.dependencies?.feishu?.status;
+    feishuStatus.value = isFeishuStatus(status) ? status : "disabled";
   } catch {
     backendOnline.value = false;
     mockApiOnline.value = false;
+    feishuStatus.value = "stopped";
   }
+}
+
+function isFeishuStatus(status: string | undefined): status is FeishuConnectionStatus {
+  return [
+    "disabled",
+    "stopped",
+    "starting",
+    "connected",
+    "reconnecting",
+    "failed",
+    "misconfigured",
+  ].includes(status ?? "");
+}
+
+function feishuStatusLabel(status: FeishuConnectionStatus): string {
+  const labels: Record<FeishuConnectionStatus, string> = {
+    disabled: "未配置",
+    stopped: "未启动",
+    starting: "连接中",
+    connected: "已连接",
+    reconnecting: "重连中",
+    failed: "连接失败",
+    misconfigured: "配置错误",
+  };
+  return labels[status];
 }
 
 function openUploadDialog(): void {
@@ -196,6 +226,13 @@ function errorMessage(error: unknown, fallback: string): string {
 
 onMounted(async () => {
   await Promise.all([refreshDocuments(), checkBackend()]);
+  healthTimer = setInterval(() => void checkBackend(), 5000);
+});
+
+onUnmounted(() => {
+  if (healthTimer !== null) {
+    clearInterval(healthTimer);
+  }
 });
 </script>
 
@@ -238,6 +275,13 @@ onMounted(async () => {
           <div>
             <div class="connection-title">后端服务</div>
             <div class="connection-status">{{ backendOnline ? "运行正常" : "连接中" }}</div>
+          </div>
+        </div>
+        <div class="connection-card">
+          <span class="connection-dot" :class="{ 'connection-dot--offline': feishuStatus !== 'connected' }"></span>
+          <div>
+            <div class="connection-title">飞书机器人</div>
+            <div class="connection-status">{{ feishuStatusLabel(feishuStatus) }}</div>
           </div>
         </div>
         <div class="user-card">
@@ -291,6 +335,7 @@ onMounted(async () => {
           v-if="activeView === 'chat'"
           :backend-online="backendOnline"
           :mock-api-online="mockApiOnline"
+          :feishu-status="feishuStatus"
         />
         <ConversationLogs v-else-if="activeView === 'logs'" :backend-online="backendOnline" />
 

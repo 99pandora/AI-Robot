@@ -21,6 +21,7 @@ dependencies = [
     "python-multipart>=0.0.20,<1.0",
     "socksio>=1.0.0,<2.0",
     "uvicorn[standard]>=0.34,<1.0",
+    "lark-channel-sdk>=1.2,<2.0",
 ]
 
 [dependency-groups]

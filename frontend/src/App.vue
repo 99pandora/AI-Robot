@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import {
   Check,
+  ChatDotRound,
   Delete,
   Document,
   Download,
@@ -24,6 +25,8 @@ import {
 import type { DocumentRecord, DocumentStatus } from "./types";
 import type { UploadFile, UploadUserFile } from "element-plus";
 import { ElMessage, ElMessageBox } from "element-plus";
+import ChatPanel from "./components/ChatPanel.vue";
+import ConversationLogs from "./components/ConversationLogs.vue";
 
 const documents = ref<DocumentRecord[]>([]);
 const loading = ref(false);
@@ -35,6 +38,8 @@ const searchText = ref("");
 const statusFilter = ref<DocumentStatus | "">("");
 const activeOperation = ref<string | null>(null);
 const backendOnline = ref(false);
+const mockApiOnline = ref(false);
+const activeView = ref<"knowledge" | "chat" | "logs">("knowledge");
 
 const filteredDocuments = computed(() => {
   const keyword = searchText.value.trim().toLowerCase();
@@ -78,10 +83,12 @@ async function refreshDocuments(showMessage = false): Promise<void> {
 
 async function checkBackend(): Promise<void> {
   try {
-    await getHealth();
+    const health = await getHealth();
     backendOnline.value = true;
+    mockApiOnline.value = health.dependencies?.mock_api === "ok";
   } catch {
     backendOnline.value = false;
+    mockApiOnline.value = false;
   }
 }
 
@@ -204,15 +211,20 @@ onMounted(async () => {
       </div>
 
       <div class="sidebar-label">管理中心</div>
-      <div class="nav-item nav-item--active">
+      <div class="nav-item" :class="{ 'nav-item--active': activeView === 'chat' }" @click="activeView = 'chat'">
+        <el-icon><ChatDotRound /></el-icon>
+        <span>对话</span>
+        <span class="coming-soon">Agent</span>
+      </div>
+      <div class="nav-item" :class="{ 'nav-item--active': activeView === 'knowledge' }" @click="activeView = 'knowledge'">
         <el-icon><FolderOpened /></el-icon>
         <span>知识库</span>
         <span class="nav-count">{{ statistics.total }}</span>
       </div>
-      <div class="nav-item nav-item--muted">
+      <div class="nav-item" :class="{ 'nav-item--active': activeView === 'logs' }" @click="activeView = 'logs'">
         <el-icon><Document /></el-icon>
         <span>对话日志</span>
-        <span class="coming-soon">即将开放</span>
+        <span class="coming-soon">审计</span>
       </div>
       <div class="nav-item nav-item--muted">
         <el-icon><Setting /></el-icon>
@@ -240,23 +252,49 @@ onMounted(async () => {
 
     <el-container>
       <el-header class="topbar">
-        <div>
+        <div v-if="activeView === 'knowledge'">
           <div class="breadcrumb">管理中心 <span>/</span> 知识库</div>
           <h1>知识库</h1>
         </div>
+        <div v-else-if="activeView === 'chat'">
+          <div class="breadcrumb">管理中心 <span>/</span> 对话</div>
+          <h1>对话</h1>
+        </div>
+        <div v-else>
+          <div class="breadcrumb">管理中心 <span>/</span> 对话日志</div>
+          <h1>对话日志</h1>
+        </div>
         <div class="topbar-actions">
-          <el-button :loading="loading" text @click="refreshDocuments(true)">
-            <el-icon><Refresh /></el-icon>
-            刷新
+          <el-button v-if="activeView !== 'logs'" text @click="activeView = 'logs'">
+            <el-icon><Document /></el-icon>
+            对话日志
           </el-button>
-          <el-button type="primary" @click="openUploadDialog">
-            <el-icon><Plus /></el-icon>
-            上传文档
+          <el-button text @click="activeView = activeView === 'knowledge' ? 'chat' : 'knowledge'">
+            <el-icon><ChatDotRound v-if="activeView === 'knowledge'" /><FolderOpened v-else /></el-icon>
+            {{ activeView === "knowledge" ? "进入对话" : "返回知识库" }}
           </el-button>
+          <template v-if="activeView === 'knowledge'">
+            <el-button class="refresh-button" :loading="loading" text @click="refreshDocuments(true)">
+              <el-icon><Refresh /></el-icon>
+              刷新
+            </el-button>
+            <el-button type="primary" @click="openUploadDialog">
+              <el-icon><Plus /></el-icon>
+              上传文档
+            </el-button>
+          </template>
         </div>
       </el-header>
 
       <el-main class="main-content">
+        <ChatPanel
+          v-if="activeView === 'chat'"
+          :backend-online="backendOnline"
+          :mock-api-online="mockApiOnline"
+        />
+        <ConversationLogs v-else-if="activeView === 'logs'" :backend-online="backendOnline" />
+
+        <template v-else>
         <section class="intro-row">
           <div>
             <p class="page-description">维护小苏回答问题时使用的制度、手册和业务资料。</p>
@@ -365,6 +403,7 @@ onMounted(async () => {
             </template>
           </el-table>
         </section>
+        </template>
       </el-main>
     </el-container>
   </el-container>
@@ -409,7 +448,7 @@ onMounted(async () => {
 .brand-name { color: #fff; font-size: 17px; font-weight: 700; letter-spacing: 0.08em; }
 .brand-caption { margin-top: 2px; color: #9fc0b9; font-size: 11px; }
 .sidebar-label { padding: 0 13px 10px; color: #789d96; font-size: 11px; letter-spacing: 0.12em; }
-.nav-item { display: flex; align-items: center; gap: 11px; min-height: 44px; margin: 3px 0; padding: 0 13px; border-radius: 10px; font-size: 13px; }
+.nav-item { display: flex; align-items: center; gap: 11px; min-height: 44px; margin: 3px 0; padding: 0 13px; border-radius: 10px; font-size: 13px; cursor: pointer; }
 .nav-item--active { color: #e7fffa; background: rgba(153, 246, 228, 0.16); box-shadow: inset 3px 0 #5eead4; }
 .nav-item--muted { color: #9fc0b9; }
 .nav-item--muted .el-icon { color: #70938d; }
@@ -472,7 +511,7 @@ h1 { margin: 0; color: #1d302c; font-size: 24px; letter-spacing: -0.02em; }
 @media (max-width: 720px) {
   .sidebar { display: none; }
   .topbar { height: auto; min-height: 88px; padding: 18px 20px; }
-  .topbar-actions .el-button:first-child { display: none; }
+  .topbar-actions .refresh-button { display: none; }
   .main-content { padding: 24px 16px 40px; }
   .intro-row { align-items: flex-start; flex-direction: column; gap: 8px; }
   .updated-note { display: none; }

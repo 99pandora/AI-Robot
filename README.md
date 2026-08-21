@@ -1,6 +1,6 @@
 # 小苏：公司内部 AI 助手
 
-> 项目状态：已完成第三步知识库管理后台：文档管理 API、Markdown/TXT/PDF/Word 解析、SQLite 元数据、Chroma 索引和 Vue Web 管理界面已接通。Agent、飞书和对话日志页面将在后续步骤实现。
+> 项目状态：已完成知识库管理后台、最小 Agent 闭环和对话日志页面；飞书接入仍需配置凭据后单独验收。
 
 小苏面向公司员工提供知识库问答、考勤查询、订单汇总和飞书机器人服务。知识库文件来自 `knowledges/`，内部 mock 系统数据来自 `data/`。
 
@@ -51,11 +51,11 @@ bash ./scripts/test.sh
 bash ./scripts/index.sh
 ```
 
-`start.sh` 启动主服务（`GET /api/health`）；`start-mock.sh` 启动独立 mock API（`GET /health`、`GET /api/attendance`、`GET /api/orders`）。mock API 只读取 `data/`，考勤接口的 `user_id` 同时接受 `001` 与 `U001`。
+`start.sh` 启动主服务（`GET /api/health`）；`start-mock.sh` 启动独立 mock API（`GET /health`、`GET /api/attendance`、`GET /api/orders`）。考勤和订单工具依赖 mock API，因此本地联调必须同时运行两个脚本；主服务健康检查中的 `dependencies.mock_api` 可直接确认依赖是否在线。mock API 只读取 `data/`，考勤接口的 `user_id` 同时接受 `001` 与 `U001`。
 
 脚本会根据自身位置自动切换到项目根目录，因此在 `scripts/` 目录内执行 `bash ./start-mock.sh` 也可以正常启动。
 
-管理后台有两种启动方式：开发时先在一个终端执行 `bash ./scripts/start.sh`，再执行 `bash ./scripts/start-frontend.sh`，打开 `http://127.0.0.1:5173/`；需要同源访问时先执行 `bash ./scripts/build.sh`，再执行 `bash ./scripts/start.sh`，打开 `http://127.0.0.1:8000/`。后台支持文档列表、文件名搜索、状态筛选、上传、下载、重建索引和停用文档。
+管理后台有两种启动方式：开发时先在一个终端执行 `bash ./scripts/start.sh`，再执行 `bash ./scripts/start-frontend.sh`，打开 `http://127.0.0.1:5173/`；需要同源访问时先执行 `bash ./scripts/build.sh`，再执行 `bash ./scripts/start.sh`，打开 `http://127.0.0.1:8000/`。后台支持文档列表、文件名搜索、状态筛选、上传、下载、重建索引和停用文档，并在左侧“对话”入口提供 SSE 流式聊天、工具调用状态和知识库引用展示。
 `setup.sh`、`build.sh` 和 `start-frontend.sh` 会自动兼容 Git Bash 找不到 `pnpm`、但 Windows `pnpm.cmd` 已安装的情况。
 
 知识库接口包括 `POST/GET /api/documents`、`GET /api/documents/{id}/download`、`POST /api/documents/{id}/reindex` 和 `DELETE /api/documents/{id}`。文档加载优先使用 LangChain 官方 `TextLoader`、`PyPDFLoader` 和 `Docx2txtLoader`，切分使用 `RecursiveCharacterTextSplitter`（最大 150 字符、重叠 30 字符），统一转换成文档对象后再索引；上传同名且 SHA-256 相同的文件会跳过索引，上传同名不同内容会创建新版本。执行 `bash ./scripts/index.sh` 会索引 `knowledges/` 下的种子文档，删除种子只停用索引，不会删除原文件。
@@ -68,7 +68,20 @@ Chroma Embedding 使用 LangChain `OpenAIEmbeddings`，支持 OpenAI 兼容服�
 
 ## 会话记忆与日志
 
-Agent 上下文只保存在进程内存中，每个 `platform:user_id:conversation_id` 最多保留最近 4 个用户—助手轮次；服务重启后清空。SQLite 只保存后台审计日志，不会反向恢复 Agent 上下文。
+Agent 使用 LangGraph 的模型—工具循环，工具由模型 Tool Calling 自主选择。聊天接口为 `POST /api/chat/stream`，请求体示例：
+
+```json
+{
+  "message": "公司年假怎么申请？",
+  "platform": "web",
+  "user_id": "U001",
+  "conversation_id": "demo"
+}
+```
+
+响应是 SSE，包含 `token`、`tool_call`、`reference`、`complete` 和 `error` 事件；`tool_call.status` 为 `started`、`completed` 或 `failed`。知识库工具使用 LangChain Chroma Retriever 的 MMR，固定 `fetch_k=5`、`k=3`；制度问题没有检索证据时会拒答。考勤和订单工具通过 `MOCK_API_BASE_URL` 调用独立 mock API。
+
+Agent 上下文只保存在 LangChain `InMemoryChatMessageHistory` 中，每个 `platform:user_id:conversation_id` 最多保留最近 4 个用户—助手轮次；服务重启后清空。SQLite 只保存后台审计日志，不会反向恢复 Agent 上下文。
 
 ## 飞书接入
 
@@ -83,3 +96,9 @@ Agent 上下文只保存在进程内存中，每个 `platform:user_id:conversati
 ## 开发约束
 
 详细模块边界、接口、测试和扩展方式见 [AGENTS.md](./AGENTS.md)。任何新增工具、IM 平台或模型供应商都应先更新类型、测试和 README。
+
+## 对话日志
+
+左侧“对话日志”入口提供会话摘要查询和详情抽屉，支持按关键字、状态筛选，并展示每轮提问、回答、工具调用、知识库引用、错误信息和耗时。
+
+后端通过 `GET /api/conversations` 获取摘要，通过 `GET /api/conversations/{id}` 获取详情。日志写入 `storage/conversations.sqlite3`，只用于审计展示，不会被 Agent 读取为上下文。

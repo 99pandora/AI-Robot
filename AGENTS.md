@@ -29,7 +29,7 @@
 - 后端使用 Python、FastAPI、LangGraph、LangChain、Chroma、SQLite；依赖由 `uv` 管理，虚拟环境固定为 `.venv`。
 - 前端使用 Vue 3、TypeScript、Vite、Element Plus；依赖由 `pnpm` 管理，不使用 CommonJS。
 - `backend/` 保存 API、Agent、知识库、持久化和飞书适配器；`frontend/` 保存管理后台；`scripts/` 保存启动、测试、索引和构建命令。
-- `frontend/` 使用 Vue 3、TypeScript、Vite 和 Element Plus；知识库后台已接通文档列表、上传、下载、重建索引和停用接口。
+- `frontend/` 使用 Vue 3、TypeScript、Vite 和 Element Plus；已接通知识库文档管理、“对话”入口和“对话日志”页面，聊天页面消费 `/api/chat/stream` 的 SSE 事件。
 - `data/attendance.json` 与 `data/order.json` 是只读 mock 数据；`knowledges/` 是只读种子知识文件。
 - `storage/` 和 `logs/` 只保存运行时数据，不能提交 Git。
 
@@ -38,6 +38,7 @@
 - Agent 上下文只允许保存在进程内存中，不使用数据库或外部缓存恢复上下文。
 - Key 使用 `platform:user_id:conversation_id`，每个会话最多保留最近 4 个用户—助手轮次。
 - 使用线程安全的内存存储和会话锁；服务重启后记忆必须清空。
+- 会话历史使用 LangChain `InMemoryChatMessageHistory` 保存，不能改为 SQLite、文件或外部缓存。
 - SQLite 只保存对话审计日志，不能被 Agent 当作上下文加载。
 
 ### Agent 与工具
@@ -46,6 +47,7 @@
 - 工具固定包含 `search_knowledge`、`query_attendance`、`query_orders`、`current_time`。
 - 工具选择必须使用模型 Tool Calling，不按问题关键词硬编码业务分流。
 - 公司制度类答案必须带真实知识库引用；检索不到证据时必须拒答，禁止补写事实。
+- `search_knowledge` 使用 LangChain Chroma Retriever 的 MMR，固定 `fetch_k=5`、`k=3`。
 - `query_attendance` 兼容 `001` 与 `U001`；订单和考勤工具必须通过 HTTP 调用独立 mock API。
 
 ### 知识库行为
@@ -60,9 +62,9 @@
 ### 公共接口
 
 - 文档：`POST/GET /api/documents`、`GET /api/documents/{id}/download`、`POST /api/documents/{id}/reindex`、`DELETE /api/documents/{id}`。
-- 问答：`POST /api/chat/stream`，SSE 事件包含 token、工具调用、引用、完成和错误。
+- 问答：`POST /api/chat/stream`，请求体至少包含 `message`，可选 `platform`、`user_id`、`conversation_id`；SSE 事件包含 token、工具调用、引用、完成和错误，工具状态为 `started`、`completed` 或 `failed`。
 - 日志：`GET /api/conversations`、`GET /api/conversations/{id}`。
-- 设置与健康：`GET /api/settings`、`PUT /api/settings/model`、`GET /api/health`。
+- 设置与健康：`GET /api/settings`、`PUT /api/settings/model`、`GET /api/health`；健康响应中的 `dependencies.mock_api` 表示考勤和订单 mock 服务是否在线。
 - Mock API：`GET /api/attendance`、`GET /api/orders`、`GET /health`。
 
 ### 飞书与错误处理
@@ -79,3 +81,10 @@
 - 禁止提交 `.env`、密钥、运行数据库、Chroma、日志、上传文件、缓存和构建产物。
 - 修改 API、数据类型、记忆策略或工具时，必须同步更新 README、测试和本文件。
 - 提交前检查暂存区并展示变更摘要；禁止强推、rebase 或覆盖远端历史。
+
+### 对话日志实现
+
+- `backend/conversations/` 使用 SQLite 记录会话摘要和每轮审计详情，包含状态、工具调用、知识库引用、错误信息和耗时。
+- `GET /api/conversations` 与 `GET /api/conversations/{id}` 提供日志列表和详情；Vue 管理后台的“对话日志”页面负责查询和展示。
+- 审计日志只用于管理记录，不得作为 Agent 的上下文来源；Agent 记忆仍只保存在进程内 `InMemoryChatMessageHistory`。
+- 考勤或订单 mock 服务不可用时，工具调用状态记录为 `failed`，本轮日志状态也记录为 `failed`，但保留模型生成的兜底回答。

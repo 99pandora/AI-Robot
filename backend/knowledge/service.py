@@ -6,6 +6,7 @@ from threading import RLock
 from uuid import uuid4
 
 from langchain_core.embeddings import Embeddings
+from langchain_community.vectorstores import Chroma as LangChainChroma
 
 from backend.knowledge.indexer import ChromaIndexer
 from backend.knowledge.models import (
@@ -31,6 +32,7 @@ class DocumentService:
             embeddings=embeddings,
         )
         self._lock = RLock()
+        self._retriever = None
 
     def list_documents(self) -> list[DocumentRecord]:
         """列出当前 active 文档。"""
@@ -115,6 +117,32 @@ class DocumentService:
             for result in self.indexer.query(query, limit)
             if result["metadata"]["document_id"] in active_ids
         ]
+
+    def mmr_search(self, query: str) -> list[dict[str, object]]:
+        """从五个候选中用 MMR 召回最多三个多样化文本片段。"""
+        with self._lock:
+            if self._retriever is None:
+                # 复用现有 Chroma collection，通过 LangChain Retriever 开启 MMR。
+                vector_store = LangChainChroma(
+                    client=self.indexer.client,
+                    collection_name=self.indexer.collection.name,
+                    embedding_function=self.indexer._embedding_model(),
+                )
+                self._retriever = vector_store.as_retriever(
+                    search_type="mmr",
+                    search_kwargs={"fetch_k": 5, "k": 3},
+                )
+            documents = self._retriever.invoke(query)
+            # 删除文档后即使 collection 中存在残留向量，也不能继续作为有效证据返回。
+            active_ids = {record.id for record in self.list_documents()}
+            return [
+                {
+                    "text": document.page_content,
+                    "metadata": document.metadata,
+                }
+                for document in documents
+                if document.metadata.get("document_id") in active_ids
+            ][:3]
 
 
 def _safe_filename(filename: str) -> str:

@@ -5,10 +5,13 @@
 
 # Python
 .venv/
+.uv-cache/
 __pycache__/
 *.py[cod]
 *.pyd
 .pytest_cache/
+.tmp/
+.test-tmp/
 .mypy_cache/
 .ruff_cache/
 .coverage

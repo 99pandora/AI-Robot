@@ -18,7 +18,7 @@
 ```text
 backend/       FastAPI、LangGraph、Chroma、SQLite、飞书长连接适配器
 frontend/      Vue 3 + TypeScript + Vite 管理后台
-scripts/       setup/start/test/index/build 脚本
+scripts/       setup/start-all/start/test/index/build 脚本
 data/          attendance.json、order.json mock 数据（只读）
 knowledges/    初始知识库文件（只读种子文件）
 docs/          架构图、截图和开发说明
@@ -44,23 +44,23 @@ logs/          运行日志（不提交）
 
 ```bash
 bash ./scripts/setup.sh
-bash ./scripts/build.sh
-bash ./scripts/start.sh
-bash ./scripts/start-mock.sh
-bash ./scripts/start-frontend.sh
+bash ./scripts/start-all.sh
 bash ./scripts/test.sh
-bash ./scripts/test-feishu.sh
+bash ./scripts/test.sh feishu
+bash ./scripts/build.sh
 bash ./scripts/index.sh
 ```
 
-`start.sh` 启动主服务（`GET /api/health`）；`start-mock.sh` 启动独立 mock API（`GET /health`、`GET /api/attendance`、`GET /api/orders`）。考勤和订单工具依赖 mock API，因此本地联调必须同时运行两个脚本；主服务健康检查中的 `dependencies.mock_api` 可直接确认依赖是否在线。mock API 只读取 `data/`，考勤接口的 `user_id` 同时接受 `001` 与 `U001`。
+`start-all.sh` 是日常开发的一键启动入口，会在同一个终端启动 Vue 管理后台、FastAPI 主服务和 mock API；按 Ctrl+C 会统一停止三个服务，进程标准输出写入 `.tmp/xiaosu/`。后端 Python 日志统一写入 `logs/xiaosu.log`，单文件 5 MB 后轮转，保留 5 个历史文件。首次运行先执行 `setup.sh` 安装依赖。
+
+`start.sh`、`start-mock.sh` 和 `start-frontend.sh` 仍保留用于单独排障。考勤和订单工具依赖 mock API，主服务健康检查中的 `dependencies.mock_api` 可直接确认依赖是否在线。mock API 只读取 `data/`，考勤接口的 `user_id` 同时接受 `001` 与 `U001`。
 
 主服务健康检查的 `dependencies.feishu` 会返回飞书适配器状态：`disabled` 表示未配置凭据，`starting`/`connected`/`reconnecting` 表示连接生命周期，`failed` 或 `misconfigured` 表示需要检查网络、权限或配置。未配置飞书凭据不影响 Web 管理后台启动。
 
 脚本会根据自身位置自动切换到项目根目录，因此在 `scripts/` 目录内执行 `bash ./start-mock.sh` 也可以正常启动。
 
-管理后台有两种启动方式：开发时先在一个终端执行 `bash ./scripts/start.sh`，再执行 `bash ./scripts/start-frontend.sh`，打开 `http://127.0.0.1:5173/`；需要同源访问时先执行 `bash ./scripts/build.sh`，再执行 `bash ./scripts/start.sh`，打开 `http://127.0.0.1:8000/`。后台支持文档列表、文件名搜索、状态筛选、上传、下载、重建索引和停用文档，并在左侧“对话”入口提供 SSE 流式聊天、工具调用状态和知识库引用展示。
-`setup.sh`、`build.sh` 和 `start-frontend.sh` 会自动兼容 Git Bash 找不到 `pnpm`、但 Windows `pnpm.cmd` 已安装的情况。
+开发时执行 `bash ./scripts/start-all.sh` 后打开 `http://127.0.0.1:5173/`；需要同源访问时执行 `bash ./scripts/build.sh`，再执行 `bash ./scripts/start.sh`，打开 `http://127.0.0.1:8000/`。后台支持文档列表、文件名搜索、状态筛选、上传、下载、重建索引和停用文档，并在左侧“对话”入口提供 SSE 流式聊天、工具调用状态和知识库引用展示。
+`setup.sh`、`build.sh`、`start-all.sh` 和 `start-frontend.sh` 会自动兼容 Git Bash 找不到 `pnpm`、但 Windows `pnpm.cmd` 已安装的情况。
 
 知识库接口包括 `POST/GET /api/documents`、`GET /api/documents/{id}/download`、`POST /api/documents/{id}/reindex` 和 `DELETE /api/documents/{id}`。文档加载优先使用 LangChain 官方 `TextLoader`、`PyPDFLoader` 和 `Docx2txtLoader`，切分使用 `RecursiveCharacterTextSplitter`（最大 150 字符、重叠 30 字符），统一转换成文档对象后再索引；上传同名且 SHA-256 相同的文件会跳过索引，上传同名不同内容会创建新版本。执行 `bash ./scripts/index.sh` 会索引 `knowledges/` 下的种子文档，删除种子只停用索引，不会删除原文件。
 
@@ -91,17 +91,17 @@ Agent 上下文只保存在 LangChain `InMemoryChatMessageHistory` 中，每个 
 
 飞书适配器使用官方 `lark-channel-sdk` 的 `FeishuChannel`，通过 WebSocket 长连接接收 `im.message.receive_v1`，并将消息异步转交给现有 `AgentService`。私聊默认响应，群聊需要 @机器人；SDK 自带内存去重，业务层额外按 `message_id` 做进程内有界 TTL 幂等。飞书会话使用 `feishu:user_id:chat_id` 作为记忆键，话题消息会追加 `thread_id`，不会与 Web 会话或其他用户串联。
 
-发送失败由适配器进行有限重试，模型初始化/执行失败时向用户发送友好兜底消息；发送最终失败则写入服务日志。服务关闭时会停止 Channel 并等待已接收消息任务完成。适配器不把消息或凭据写入 SQLite、文件或外部缓存。
+发送失败由适配器进行有限重试，模型初始化/执行失败时向用户发送友好兜底消息；发送最终失败则写入 `logs/xiaosu.log`。服务关闭时会停止 Channel 并等待已接收消息任务完成。适配器不把消息或凭据写入 SQLite、文件或外部缓存。
 
 ### 本地离线验收
 
 没有飞书凭据时可执行：
 
 ```bash
-bash ./scripts/test-feishu.sh
+bash ./scripts/test.sh feishu
 ```
 
-该脚本覆盖消息去重、会话键隔离、发送重试、模型失败兜底、无凭据停用和部分配置报错。
+该命令覆盖消息去重、会话键隔离、发送重试、模型失败兜底、无凭据停用和部分配置报错；旧的 `test-feishu.sh` 仍作为兼容入口保留。
 
 ### 真实 IM 验收
 
@@ -128,3 +128,5 @@ bash ./scripts/test-feishu.sh
 左侧“对话日志”入口提供会话摘要查询和详情抽屉，支持按关键字、状态筛选，并展示每轮提问、回答、工具调用、知识库引用、错误信息和耗时。
 
 后端通过 `GET /api/conversations` 获取摘要，通过 `GET /api/conversations/{id}` 获取详情。日志写入 `storage/conversations.sqlite3`，只用于审计展示，不会被 Agent 读取为上下文。
+
+运行日志由 Python 标准库 `logging` 统一写入 `logs/xiaosu.log`，并按大小自动轮转；`start-all.sh` 额外保存各进程的标准输出到 `.tmp/xiaosu/`。两类日志均为运行时文件，不提交 Git。

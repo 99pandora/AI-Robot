@@ -1,12 +1,15 @@
 """供 Agent 通过 HTTP 调用的独立内部业务 mock 服务。"""
 
 from datetime import date
+from pathlib import Path
 
 from fastapi import FastAPI, Query
 
 from backend.mock_api.models import AttendanceRecord, OrderRecord
 from backend.mock_api.repository import find_attendance, find_orders
+from backend.logging_config import configure_logging
 
+configure_logging(Path(__file__).resolve().parents[2] / "logs")
 app = FastAPI(title="小苏 Mock API", version="0.1.0")
 
 

@@ -1,10 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-cd -- "$(cd -- "$SCRIPT_DIR/.." && pwd)"
+source "$(dirname -- "${BASH_SOURCE[0]}")/_common.sh"
 
-# 使用项目内缓存和临时目录，避免受机器全局权限影响。
-export UV_CACHE_DIR="${UV_CACHE_DIR:-$PWD/.uv-cache}"
-PYTEST_BASETEMP="$PWD/.tmp/pytest-$(date +%Y%m%d%H%M%S)-$$"
-uv run pytest -p no:cacheprovider --basetemp "$PYTEST_BASETEMP"
+TEST_TARGET="${1:-all}"
+PYTEST_BASETEMP="$PROJECT_ROOT/.tmp/pytest-${TEST_TARGET}-$(date +%Y%m%d%H%M%S)-$$"
+
+case "$TEST_TARGET" in
+  all)
+    TEST_PATHS=()
+    ;;
+  feishu)
+    TEST_PATHS=(backend/tests/test_feishu.py)
+    ;;
+  *)
+    echo "用法：bash ./scripts/test.sh [all|feishu]" >&2
+    exit 2
+    ;;
+esac
+
+uv run pytest -p no:cacheprovider --basetemp "$PYTEST_BASETEMP" "${TEST_PATHS[@]}"

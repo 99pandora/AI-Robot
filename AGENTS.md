@@ -72,6 +72,7 @@
 - 使用官方 `lark-channel-sdk` 的 `FeishuChannel` WebSocket 长连接接收 `im.message.receive_v1`；SDK 内存去重之外，业务适配器按 `message_id` 做线程安全、有界 TTL 幂等。
 - 飞书消息按 `feishu:user_id:chat_id[:thread_id]` 与其他平台隔离最近 4 轮记忆；回调只做归一化和投递，Agent 在应用事件循环后台处理。
 - LLM、mock API 和飞书发送失败时有限重试，最终向用户返回友好兜底消息，并写入对话审计或服务日志。
+- Python 服务日志统一由标准库 `logging` 写入 `logs/xiaosu.log`，按大小轮转并保留历史文件；`start-all.sh` 的进程标准输出可另存于 `.tmp/xiaosu/`。
 - 未配置飞书凭据时允许本地启动，部分凭据配置显示 `misconfigured`；没有真实凭据不能声称 IM 验收完成。
 
 ### 工程和 Git

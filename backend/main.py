@@ -18,10 +18,12 @@ from backend.feishu.service import FeishuAdapter
 from backend.knowledge.models import KnowledgeSettings
 from backend.knowledge.routes import build_document_router
 from backend.knowledge.service import DocumentService
+from backend.logging_config import configure_logging
 
 # 以源码位置确定项目根目录，保证从任意工作目录启动都能找到 storage/ 和 knowledges/。
 project_root = Path(__file__).resolve().parents[1]
 load_dotenv(project_root / ".env", override=False)
+configure_logging(project_root / "logs")
 document_service = DocumentService(KnowledgeSettings.from_project_root(project_root))
 conversation_store = ConversationAuditStore(
     document_service.settings.storage_root / "conversations.sqlite3"
